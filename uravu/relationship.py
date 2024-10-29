@@ -13,10 +13,12 @@ See the `tutorials online`_ for more guidence of how to use this package.
 # Distributed under the terms of the MIT License
 # author: Andrew R. McCluskey
 
+from typing import Callable, List, Union, Tuple
 from inspect import getfullargspec
 import numpy as np
 from scipy import stats
 from uncertainties import ufloat
+from tqdm import tqdm
 from uravu import optimize, sampling
 from uravu.distribution import Distribution
 from uravu.axis import Axis
@@ -27,25 +29,23 @@ class Relationship:
     The :py:class:`~uravu.relationship.Relationship` class is the base of the :py:mod:`uravu` package, enabling the use of Bayesian inference for the assessment of a model's ability to describe some data.
 
     Attributes:
-        function (:py:attr:`callable`): The function that is modelled.
-        abscissa (:py:attr:`array_like`): The abscissa data that the modelling should be performed on.
-        ordinate (:py:attr:`list` or :py:class:`uravu.distribution.Distribution` or :py:attr:`array_like`): The ordinate data against with the model should be compared. This should be an :py:attr:`list` or :py:class:`uravu.distribution.Distribution` unless a :py:attr:`ordinate_error` is given.
-        variables (:py:attr:`list` of :py:class:`uravu.distribution.Distribution`): Variables in the :py:attr:`~uravu.relationship.Relationship.function`.
+    :param function (:py:attr:`callable`): The function that is modelled.
+    :param abscissa (:py:attr:`array_like`): The abscissa data that the modelling should be performed on.
+    :param ordinate (:py:attr:`list` or :py:class:`uravu.distribution.Distribution` or :py:attr:`array_like`): The ordinate data against with the model should be compared. This should be an :py:attr:`list` or :py:class:`uravu.distribution.Distribution` unless a :py:attr:`ordinate_error` is given.
+    :param variables (:py:attr:`list` of :py:class:`uravu.distribution.Distribution`): Variables in the :py:attr:`~uravu.relationship.Relationship.function`.
         bounds (:py:attr:`tuple`): The minimum and maximum values for each parameters.
         ln_evidence (:py:class:`uncertainties.core.Variable`): The natural-log of the Bayesian evidence for the model to the given data.
         mcmc_results (:py:attr:`dict`): The results from :func:`emcee.EnsembleSampler.run_mcmc()` sampling.
         nested_sampling_results (:py:attr:`dict`): The results from :func:`dynesty.NestedSampler.run_nested()` nested sampling.
 
-    Args:
-        function (:py:attr:`callable`): The functional relationship to be modelled.
-        abscissa (:py:attr:`array_like`): The abscissa data. If multi-dimensional, the array is expected to have the shape :py:attr:`(N, d)`, where :py:attr:`N` is the number of data points and :py:attr:`d` is the dimensionality.
-        ordinate (:py:attr:`list` or :py:class:`uravu.distribution.Distribution` or :py:attr:`array_like`): The ordinate data. This should have a shape :py:attr:`(N,)`.
-        bounds (:py:attr:`tuple`, optional): The minimum and maximum values for each parameters. Defaults to :py:attr:`None`.
-        ordinate_error (:py:attr:`array_like`, optional): The uncertainty in the ordinate, this should be the standard error in the measurement. Only used if :py:attr:`ordinate` is not a :py:attr:`list` or :py:class:`uravu.distribution.Distribution`. Defaults to :py:attr:`None`.
-        ci_points (:py:attr:`array_like`, optional): The two percentiles at which confidence intervals should be found for the distributions. Default is :py:attr:`[2.5, 97.5]` (a 95 % confidence interval).
+    :param function: The functional relationship to be modelled.
+    :param abscissa: The abscissa data. If multi-dimensional, the array is expected to have the shape :py:attr:`(N, d)`, where :py:attr:`N` is the number of data points and :py:attr:`d` is the dimensionality.
+    :param ordinate: The ordinate data. This should have a shape :py:attr:`(N,)`.
+    :param bounds: The minimum and maximum values for each parameters. Defaults to :py:attr:`None`.
+    :param ordinate_error: The uncertainty in the ordinate, this should be the standard error in the measurement. Only used if :py:attr:`ordinate` is not a :py:attr:`list` or :py:class:`uravu.distribution.Distribution`. Defaults to :py:attr:`None`.
     """
 
-    def __init__(self, function, abscissa, ordinate, bounds=None, ordinate_error=None, ci_points=None):
+    def __init__(self, function: Callable, abscissa: Union[List[float], np.ndarray], ordinate: Union[List[Union[Distribution, stats._distn_infrastructure.rv_frozen, float]], np.ndarray], bounds: Tuple[Tuple[float, float]]=None, ordinate_error: Union[List[float], np.ndarray]=None) -> 'Relationship':
         """
         Initialisation function for a :py:class:`~uravu.relationship.Relationship` object.
         """
@@ -71,24 +71,22 @@ class Relationship:
             raise ValueError("The number of data points in the abscissa does not match that for the ordinate.")
 
         self.bounds = bounds
-        if ci_points is None:
-            self.ci_points = np.array([2.5, 97.5])
         self.variables = []
         if bounds is not None:
             if len(self.bounds) != self.len_parameters or not isinstance(bounds[0], tuple):
                 raise ValueError("The number of bounds does not match the number of parameters")
             for i, b in enumerate(self.bounds):
-                self.variables.append(Distribution(stats.uniform.rvs(loc=b[0], scale=b[1] - b[0], size=500), ci_points=self.ci_points))
+                self.variables.append(Distribution(stats.uniform.rvs(loc=b[0], scale=b[1] - b[0], size=500)))
         else:
             for i in range(self.len_parameters):
-                self.variables.append(Distribution(1, ci_points=self.ci_points))
+                self.variables.append(Distribution(1))
 
         self.ln_evidence = None
         self.mcmc_results = None
         self.nested_sampling_results = None
 
     @property
-    def x(self):
+    def x(self) -> np.ndarray:
         """
         Abscissa values.
 
@@ -98,7 +96,7 @@ class Relationship:
         return self.abscissa
 
     @property
-    def y(self):
+    def y(self) -> Union[List[Union[Distribution, stats._distn_infrastructure.rv_frozen, float]], np.ndarray]:
         """
         Ordinate values.
 
@@ -156,6 +154,13 @@ class Relationship:
         if self.ln_evidence is not None:
             return True
         return False
+
+    @property
+    def flatchain(self) -> np.ndarray:
+        """
+        :return: Sampling flatchain.
+        """
+        return np.array([i.samples for i in self.variables]).T
 
     def get_sample(self, i):
         """
@@ -250,3 +255,36 @@ class Relationship:
         self.nested_sampling_results = sampling.nested_sampling(self, prior_function=prior_function, progress=progress, dynamic=dynamic, **kwargs)
         self.ln_evidence = ufloat(self.nested_sampling_results["logz"][-1], self.nested_sampling_results["logzerr"][-1])
         self.variables = self.nested_sampling_results["distributions"]
+
+    def posterior_predictive(self, n_posterior_samples: int=None, n_predictive_samples: int=256, abscissa_values: np.ndarray=None, progress: bool = True):
+        """
+        Sample the posterior predictive distribution. The shape of the resulting array will be
+        `(n_posterior_samples * n_predictive_samples, x.size)`.
+        
+        Args:
+            n_posterior_samples (optional): Number of samples from the posterior distribution.
+            n_predictive_samples (optional): Number of random samples per sample from the posterior distribution.
+            abscissa_values (optional): Values of abscissa to calculate for.
+            progress (optional): Show tqdm progress for sampling. 
+
+        Returns:
+            Samples from the posterior predictive distribution. 
+        """
+        if not self.nested_sampling_done and not self.mcmc_done:
+            raise ValueError("Cannot generate posterior predictive if sampling has not been performed.")
+        if n_posterior_samples is None:
+            n_posterior_samples = self.variables[0].size
+        if abscissa_values is None:
+            abscissa_values = self.abscissa
+        ppd = np.zeros((n_posterior_samples, n_predictive_samples, abscissa_values.size))
+        samples_to_draw = list(enumerate(np.random.randint(0, self.variables[0].size, size=n_posterior_samples)))
+        if progress:
+            iterator = tqdm(samples_to_draw, desc='Calculating Posterior Predictive')
+        else:
+            iterator = samples_to_draw
+        for i, n in iterator:
+            mu = self.function(abscissa_values, *self.get_sample(n))
+            ax = Axis([Distribution(stats.norm(loc=mu[j], scale=self.ordinate.s[j]).rvs(1000)) for j in range(len(mu))])
+            ppd[i] = ax.kde.resample(n_predictive_samples).T
+        flat_ppd = ppd.reshape(-1, abscissa_values.size)
+        return Axis([Distribution(ppd) for ppd in flat_ppd.T])

@@ -19,7 +19,7 @@ from uravu.axis import Axis
 
 TEST_Y = []
 for i in np.arange(1, 9, 1):
-    TEST_Y.append(Distribution(scipy.stats.norm.rvs(loc=i, scale=0.5, size=200)))
+    TEST_Y.append(Distribution(scipy.stats.norm.rvs(loc=i, scale=0.5, size=200, random_state=np.random.RandomState(1))))
 TEST_X = np.arange(1, 9, 1)
 
 
@@ -49,7 +49,7 @@ class TestRelationship(unittest.TestCase):
         r = Relationship(utils.straight_line, TEST_X, TEST_X, ordinate_error=[1]*len(TEST_X))
         assert_equal(r.x, TEST_X)
         assert_almost_equal(r.y.n, TEST_X, decimal=0)
-        assert_almost_equal(r.y.s, np.ones((2, len(TEST_X))) * 1.96, decimal=1)
+        assert_almost_equal(r.y.ci(), np.ones((2, len(TEST_X))) * 1.96, decimal=1)
 
     def test_ordinate_stats(self):
         test_y = []
@@ -204,3 +204,10 @@ class TestRelationship(unittest.TestCase):
         assert_equal(r.variables[0].max < 10, True)
         assert_equal(r.variables[1].min > -1, True)
         assert_equal(r.variables[1].max < 1, True)
+
+    def test_ppd(self):
+        r = Relationship(utils.straight_line, TEST_X, TEST_Y, bounds=((0, 10), (-1, 1)))
+        r.mcmc(n_burn=10, n_samples=10, progress=False, walkers=5)
+        ppd = r.posterior_predictive(n_posterior_samples=10, n_predictive_samples=10, progress=False)
+        assert_equal(len(ppd.values), 8)
+        assert_equal(ppd.values[0].size, 100)
