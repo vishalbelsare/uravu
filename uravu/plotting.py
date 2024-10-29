@@ -66,7 +66,7 @@ def plot_distribution(distro, axes=None, figsize=(5, 3)):  # pragma: no cover
     ordinate = kde.evaluate(abscissa)
     axes.plot(abscissa, ordinate, color=colors[0])
     axes.hist(distro.samples, bins=25, density=True, color=colors[0], alpha=0.5)
-    axes.fill_betweenx(np.linspace(0, ordinate.max() + ordinate.max() * 0.1), distro.con_int[0], distro.con_int[1], alpha=0.2)
+    axes.fill_betweenx(np.linspace(0, ordinate.max() + ordinate.max() * 0.1), distro.con_int()[0], distro.con_int()[1], alpha=0.2)
     axes.set_ylim((0, ordinate.max() + ordinate.max() * 0.1))
     return axes
 
